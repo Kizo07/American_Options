@@ -1,4 +1,5 @@
 from .analytic_models import black_scholes, black_scholes_approx, call_payoff, norm_cdf_approx, put_payoff
+from .calibration import bootstrap_zero_curve, calibrate_vol_surface, implied_vol
 from .credit_risk import (
     SimulationParams,
     calculate_outstanding_loan,
@@ -7,7 +8,10 @@ from .credit_risk import (
     get_loan_schedule_constants,
     simulate_mortgage_default,
 )
+from .curves import FlatCurve, ZeroCurve, as_flat_rate, discount_factor
+from .exotics import asian_option_mc, barrier_option_mc, digital_option_bs, lookback_option_mc, vanilla_reference_price
 from .finite_difference import fd_bs, fd_log
+from .greeks import black_scholes_greeks, bump_greeks, fd_greeks, tree_greeks
 from .interest_rates import (
     cir_bond_price_mc,
     cir_call_option_mc,
@@ -18,14 +22,16 @@ from .interest_rates import (
     g2pp_zero_bond_price,
 )
 from .lsmc import hermite, laguerre, lsmc, monomial
-from .mbs import compute_oas, io_po_pricing, mbs_pricing, numerix_prepayment_rate
+from .mbs import MBSConfig, PrepaymentConfig, compute_oas, io_po_pricing, mbs_pricing, numerix_prepayment_rate
 from .monte_carlo import (
+    HestonBarrierConfig,
     euler_discretization,
     heston_down_out_put,
     mc_call_option,
     mc_call_option_antithetic,
     milstein_discretization,
     simulate_path_S,
+    sobol_normals,
     two_factor_mc_call,
 )
 from .random_numbers import bernoulli, binomial, box_muller, exponential, lcg_uniform, polar_marsaglia
@@ -34,16 +40,28 @@ from .trees import binomial_tree, crr_american_put, trinomial_tree
 from .utils import delta_vs_stock, display_results, greeks_vs_time, vega_vs_stock
 
 __all__ = [
+    "FlatCurve",
+    "HestonBarrierConfig",
+    "MBSConfig",
+    "PrepaymentConfig",
     "SimulationParams",
+    "ZeroCurve",
+    "asian_option_mc",
+    "as_flat_rate",
+    "barrier_option_mc",
     "bernoulli",
     "binomial",
     "binomial_tree",
     "black_scholes",
     "black_scholes_approx",
+    "black_scholes_greeks",
+    "bootstrap_zero_curve",
     "box_muller",
     "brownian_motion",
+    "bump_greeks",
     "calculate_outstanding_loan",
     "calculate_trigger_ratio",
+    "calibrate_vol_surface",
     "call_payoff",
     "cir_bond_price_mc",
     "cir_call_option_mc",
@@ -53,11 +71,14 @@ __all__ = [
     "correlated_brownian_motion",
     "crr_american_put",
     "delta_vs_stock",
+    "digital_option_bs",
+    "discount_factor",
     "display_results",
     "euler_discretization",
     "evolve_asset_values",
     "exponential",
     "fd_bs",
+    "fd_greeks",
     "fd_log",
     "gbm",
     "g2pp_put_option_explicit",
@@ -67,9 +88,11 @@ __all__ = [
     "greeks_vs_time",
     "hermite",
     "heston_down_out_put",
+    "implied_vol",
     "io_po_pricing",
     "laguerre",
     "lcg_uniform",
+    "lookback_option_mc",
     "lsmc",
     "mbs_pricing",
     "mc_call_option",
@@ -82,8 +105,11 @@ __all__ = [
     "put_payoff",
     "simulate_mortgage_default",
     "simulate_path_S",
+    "sobol_normals",
+    "tree_greeks",
     "trinomial_tree",
     "two_factor_gbm",
     "two_factor_mc_call",
+    "vanilla_reference_price",
     "vega_vs_stock",
 ]

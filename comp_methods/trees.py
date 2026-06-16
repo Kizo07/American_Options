@@ -1,7 +1,9 @@
 import numpy as np
 from ._validation import validate_choice, validate_positive
+from .curves import as_flat_rate
 
-def binomial_tree(S0, K, r, sigma, T, n, method='a', option_type='put'):
+def binomial_tree(S0, K, r, sigma, T, n, method='a', option_type='put', q=0.0):
+    r = as_flat_rate(r, T)
     validate_choice("option_type", option_type, {"call", "put"})
     validate_choice("method", method, {"a", "b"})
     for name, value in {"S0": S0, "K": K, "sigma": sigma, "T": T, "n": n}.items():
@@ -11,10 +13,10 @@ def binomial_tree(S0, K, r, sigma, T, n, method='a', option_type='put'):
         c = 0.5 * (np.exp(-r * dt) + np.exp((r + sigma**2) * dt))
         d = c - np.sqrt(c**2 - 1)
         u = 1 / d
-        p = (np.exp(r * dt) - d) / (u - d)
+        p = (np.exp((r - q) * dt) - d) / (u - d)
     else:
-        u = np.exp((r - sigma**2/2) * dt + sigma * np.sqrt(dt))
-        d = np.exp((r - sigma**2/2) * dt - sigma * np.sqrt(dt))
+        u = np.exp((r - q - sigma**2/2) * dt + sigma * np.sqrt(dt))
+        d = np.exp((r - q - sigma**2/2) * dt - sigma * np.sqrt(dt))
         p = 0.5
     
     stock = np.zeros((n+1, n+1))
@@ -40,11 +42,12 @@ def binomial_tree(S0, K, r, sigma, T, n, method='a', option_type='put'):
             
     return option[0, 0]
 
-def crr_american_put(S0, K, r, sigma, T, n):
+def crr_american_put(S0, K, r, sigma, T, n, q=0.0):
+    r = as_flat_rate(r, T)
     dt = T / n
     u = np.exp(sigma * np.sqrt(dt))
     d = 1 / u
-    p = (np.exp(r * dt) - d) / (u - d)
+    p = (np.exp((r - q) * dt) - d) / (u - d)
     
     stock = np.zeros((n+1, n+1))
     for i in range(n+1):
@@ -67,7 +70,8 @@ def crr_american_put(S0, K, r, sigma, T, n):
         
     return option[0, 0], delta
 
-def trinomial_tree(S0, K, r, sigma, T, n, method='a', option_type='put'):
+def trinomial_tree(S0, K, r, sigma, T, n, method='a', option_type='put', q=0.0):
+    r = as_flat_rate(r, T)
     validate_choice("method", method, {"a", "b"})
     validate_choice("option_type", option_type, {"call", "put"})
     for name, value in {"S0": S0, "K": K, "sigma": sigma, "T": T, "n": n}.items():
@@ -75,7 +79,7 @@ def trinomial_tree(S0, K, r, sigma, T, n, method='a', option_type='put'):
 
     dt = T / n
     dx = sigma * np.sqrt(3 * dt)
-    drift = r - 0.5 * sigma**2
+    drift = r - q - 0.5 * sigma**2
     p_u = 0.5 * ((sigma**2 * dt + drift**2 * dt**2) / dx**2 + drift * dt / dx)
     p_d = 0.5 * ((sigma**2 * dt + drift**2 * dt**2) / dx**2 - drift * dt / dx)
     p_m = 1.0 - p_u - p_d

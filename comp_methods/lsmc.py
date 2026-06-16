@@ -1,5 +1,6 @@
 import numpy as np
 from ._validation import validate_choice, validate_positive
+from .curves import as_flat_rate
 
 def laguerre(x, k):
     if k == 0: return np.ones_like(x)
@@ -27,7 +28,8 @@ def _rng_normal(rng, loc, scale, size):
         return np.random.normal(loc, scale, size)
     return rng.normal(loc, scale, size)
 
-def lsmc(S0, K, r, sigma, T, N, num_steps, k, poly_type='laguerre', rng=None):
+def lsmc(S0, K, r, sigma, T, N, num_steps, k, poly_type='laguerre', rng=None, q=0.0):
+    r = as_flat_rate(r, T)
     validate_choice("poly_type", poly_type, {"laguerre", "hermite", "monomial"})
     for name, value in {"S0": S0, "K": K, "sigma": sigma, "T": T, "N": N, "num_steps": num_steps, "k": k}.items():
         validate_positive(name, value)
@@ -41,7 +43,7 @@ def lsmc(S0, K, r, sigma, T, N, num_steps, k, poly_type='laguerre', rng=None):
     S = np.zeros((N, num_steps + 1))
     S[:, 0] = S0
     for i in range(num_steps):
-        S[:, i+1] = S[:, i] * np.exp((r - 0.5 * sigma**2) * dt + sigma * np.sqrt(dt) * Z[:, i])
+        S[:, i+1] = S[:, i] * np.exp((r - q - 0.5 * sigma**2) * dt + sigma * np.sqrt(dt) * Z[:, i])
     
     V = np.maximum(K - S[:, -1], 0)
     
