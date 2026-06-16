@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "american-options"
+version = "0.1.0"
+description = "Numerical methods for pricing American options and related structured products."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [
+  { name = "Kanav" }
+]
+dependencies = [
+  "numpy",
+  "scipy"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest"
+]
+notebooks = [
+  "ipykernel",
+  "jupyter",
+  "matplotlib",
+  "pandas",
+  "seaborn",
+  "numba",
+  "joblib",
+  "tqdm"
+]
+examples = [
+  "matplotlib",
+  "pyecharts"
+]
+all = [
+  "pytest",
+  "ipykernel",
+  "jupyter",
+  "matplotlib",
+  "pandas",
+  "seaborn",
+  "numba",
+  "joblib",
+  "tqdm",
+  "pyecharts"
+]
+
+[tool.setuptools.packages.find]
+include = ["comp_methods*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

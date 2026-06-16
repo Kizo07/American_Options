@@ -1,25 +1,35 @@
-# comp_methods
+# American Options
 
-`comp_methods` is a Python library dedicated to computational methods for pricing financial derivatives, specifically focusing on American Options. It implements various numerical techniques such as Binomial Trees and Finite Difference Methods.
+`comp_methods` is a Python library for numerical derivative-pricing methods, with a focus on American options and selected structured-product examples.
 
 ## Features
 
-- **Binomial Tree Model**: Cox-Ross-Rubinstein (CRR) implementation for American and European options.
-- **Finite Difference Methods**:
-  - Explicit Method
-  - Implicit Method
-  - Crank-Nicolson Method
-- **Greeks Calculation**: Tools to compute Delta, Gamma, Theta, etc.
-- **Visualization**: Utilities for plotting convergence and option price surfaces.
+- Binomial-tree pricing for American and European calls/puts.
+- Finite-difference solvers for Black-Scholes-style grids.
+- Monte Carlo utilities for vanilla options and selected stochastic-process examples.
+- Longstaff-Schwartz Monte Carlo for American puts.
+- Educational notebooks and exported scripts under `notebooks/`.
 
 ## Installation
 
-To use this library, clone the repository and install the required dependencies:
+Clone the repository and install the package in editable mode:
 
 ```bash
-git clone https://github.com/yourusername/American_Options.git
+git clone https://github.com/Kizo07/American_Options.git
 cd American_Options
-pip install -r requirements.txt
+python -m pip install -e .
+```
+
+For development and tests:
+
+```bash
+python -m pip install -e ".[dev]"
+```
+
+For notebooks or optional examples:
+
+```bash
+python -m pip install -e ".[notebooks,examples]"
 ```
 
 ## Usage
@@ -27,18 +37,16 @@ pip install -r requirements.txt
 Here is a simple example of how to price an American Put option using the Binomial Tree method:
 
 ```python
-from comp_methods import BinomialTree
+from comp_methods import binomial_tree
 
-# Parameters: S0, K, T, r, sigma, N
 S0 = 100  # Initial stock price
 K = 100   # Strike price
-T = 1.0   # Time to maturity (1 year)
 r = 0.05  # Risk-free rate
-sigma = 0.2 # Volatility
-N = 100   # Number of time steps
+sigma = 0.2  # Volatility
+T = 1.0   # Time to maturity, in years
+n = 100   # Number of time steps
 
-model = BinomialTree(S0, K, T, r, sigma, N, option_type='put', style='american')
-price = model.price()
+price = binomial_tree(S0, K, r, sigma, T, n, option_type="put")
 
 print(f"American Put Option Price: {price:.4f}")
 ```
@@ -46,8 +54,16 @@ print(f"American Put Option Price: {price:.4f}")
 ## Structure
 
 - `comp_methods/`: Main package containing the implementations.
-- `tests/`: Unit tests for the algorithms.
-- `notebooks/`: Jupyter notebooks with examples and analysis.
+- `tests/`: Automated smoke and regression tests.
+- `notebooks/`: Jupyter notebooks and exported notebook source scripts.
+- `examples/`: Optional demos that may require extra dependencies.
+
+## Testing
+
+```bash
+python -m pytest
+python -m compileall -q comp_methods tests examples notebooks/exports
+```
 
 ## Contributing
 

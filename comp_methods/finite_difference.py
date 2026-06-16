@@ -1,7 +1,19 @@
 import numpy as np
 from scipy.sparse import diags
+from ._validation import validate_choice, validate_positive
 
-def _fd_solver_log(K, sigma, T, r, dt, dx, S0_range, method='explicit', option_type='put'):
+def _validate_fd_inputs(K, sigma, T, dt, step, S0_range, method, option_type, step_name):
+    validate_choice("method", method, {"explicit", "implicit", "crank_nicolson"})
+    validate_choice("option_type", option_type, {"call", "put"})
+    for name, value in {"K": K, "sigma": sigma, "T": T, "dt": dt, step_name: step}.items():
+        validate_positive(name, value)
+    if len(S0_range) == 0:
+        raise ValueError("S0_range must not be empty")
+    for S0 in S0_range:
+        validate_positive("S0", S0)
+
+def _fd_solver_log(K, sigma, T, r, dt, dx, S0_range, method='explicit', option_type='put', allow_unstable=False):
+    _validate_fd_inputs(K, sigma, T, dt, dx, S0_range, method, option_type, "dx")
     x_min = np.log(min(S0_range) * 0.5)
     x_max = np.log(max(S0_range) * 2.0)
     nx = int((x_max - x_min) / dx) + 1
@@ -22,14 +34,14 @@ def _fd_solver_log(K, sigma, T, r, dt, dx, S0_range, method='explicit', option_t
     
     if method == 'explicit':
         # Stability check
-        if alpha * sigma**2 > 1.0:
-             print(f"Warning: Explicit method might be unstable. alpha*sigma^2 = {alpha*sigma**2:.2f} > 1.0. Consider reducing dt or increasing dx.")
+        if alpha * sigma**2 > 1.0 and not allow_unstable:
+             raise ValueError(f"Explicit method is unstable. alpha*sigma^2 = {alpha*sigma**2:.2f} > 1.0.")
 
         for j in range(nt-2, -1, -1):
             for i in range(1, nx-1):
                 a = 0.5 * sigma**2 * alpha
                 b = gamma * beta
-                v[i, j] = a * v[i+1, j+1] + (1 - 2*a - r*dt) * v[i, j+1] + (a - b) * v[i-1, j+1]
+                v[i, j] = (a + b) * v[i+1, j+1] + (1 - 2*a - r*dt) * v[i, j+1] + (a - b) * v[i-1, j+1]
                 if option_type == 'call':
                     v[i, j] = max(v[i, j], np.exp(x[i]) - K)
                 else:
@@ -39,80 +51,60 @@ def _fd_solver_log(K, sigma, T, r, dt, dx, S0_range, method='explicit', option_t
                 v[0, j] = 0
                 v[nx-1, j] = (np.exp(x_max) - K) * np.exp(-r * (T - t[j])) # Approx
             else:
-                v[0, j] = K * np.exp(-r * (T - t[j]))
+                v[0, j] = K
                 v[nx-1, j] = 0
             
-    elif method == 'implicit':
+    elif method in {'implicit', 'crank_nicolson'}:
+        theta = 1.0 if method == 'implicit' else 0.5
         a = 0.5 * sigma**2 * alpha
         b = gamma * beta
-        diagonals = [np.ones(nx-2)*(a-b), np.ones(nx-1)*(1+2*a+r*dt), np.ones(nx-2)*(a+b)]
-        A = diags(diagonals, [-1, 0, 1], shape=(nx-1, nx-1)).toarray()
-        
-        for j in range(nt-2, -1, -1):
-            rhs = v[1:nx, j+1].copy()
+        op_lower = np.ones(nx - 3) * (a - b)
+        op_main = np.ones(nx - 2) * (-2 * a - r * dt)
+        op_upper = np.ones(nx - 3) * (a + b)
+
+        left_lower = -theta * op_lower
+        left_main = 1 - theta * op_main
+        left_upper = -theta * op_upper
+        right_lower = (1 - theta) * op_lower
+        right_main = 1 + (1 - theta) * op_main
+        right_upper = (1 - theta) * op_upper
+
+        A = diags([left_lower, left_main, left_upper], [-1, 0, 1], shape=(nx-2, nx-2)).toarray()
+        B = diags([right_lower, right_main, right_upper], [-1, 0, 1], shape=(nx-2, nx-2)).toarray()
+
+        def boundaries(time_index):
             if option_type == 'call':
-                boundary_low = 0
-                boundary_high = (np.exp(x_max) - K) * np.exp(-r * (T - t[j]))
-            else:
-                boundary_low = K * np.exp(-r * (T - t[j]))
-                boundary_high = 0
-                
-            rhs[0] -= (a - b) * boundary_low
-            rhs[-1] -= (a + b) * boundary_high # Need to handle upper boundary for implicit too if non-zero
-            
-            v[1:nx, j] = np.linalg.solve(A, rhs)
-            v[0, j] = boundary_low
-            v[nx-1, j] = boundary_high
-            
-            for i in range(nx):
-                if option_type == 'call':
-                    v[i, j] = max(v[i, j], np.exp(x[i]) - K)
-                else:
-                    v[i, j] = max(v[i, j], K - np.exp(x[i]))
-                
-    elif method == 'crank_nicolson':
-        alpha /= 2
-        beta /= 2
-        a = 0.5 * sigma**2 * alpha
-        b = gamma * beta
-        
-        A_diags = [np.ones(nx-2)*(-a+b), np.ones(nx-1)*(1+2*a+0.5*r*dt), np.ones(nx-2)*(-a-b)]
-        A = diags(A_diags, [-1, 0, 1], shape=(nx-1, nx-1)).toarray()
-        
-        B_diags = [np.ones(nx-2)*(a-b), np.ones(nx-1)*(1-2*a-0.5*r*dt), np.ones(nx-2)*(a+b)]
-        B = diags(B_diags, [-1, 0, 1], shape=(nx-1, nx-1)).toarray()
-        
+                return 0.0, (np.exp(x_max) - K) * np.exp(-r * (T - t[time_index]))
+            return float(K), 0.0
+
         for j in range(nt-2, -1, -1):
-            rhs = B @ v[1:nx, j+1]
-            
+            rhs = B @ v[1:nx-1, j+1]
+            boundary_low_old, boundary_high_old = boundaries(j)
+            boundary_low_next, boundary_high_next = boundaries(j + 1)
+
+            rhs[0] += (1 - theta) * (a - b) * boundary_low_next
+            rhs[-1] += (1 - theta) * (a + b) * boundary_high_next
+            rhs[0] -= (-theta * (a - b)) * boundary_low_old
+            rhs[-1] -= (-theta * (a + b)) * boundary_high_old
+
+            v[1:nx-1, j] = np.linalg.solve(A, rhs)
+            v[0, j] = boundary_low_old
+            v[nx-1, j] = boundary_high_old
             if option_type == 'call':
-                boundary_low = 0
-                boundary_high = (np.exp(x_max) - K) * np.exp(-r * (T - t[j]))
+                v[:, j] = np.maximum(v[:, j], np.exp(x) - K)
             else:
-                boundary_low = K * np.exp(-r * (T - t[j]))
-                boundary_high = 0
-            
-            rhs[0] += (-a + b) * boundary_low
-            rhs[-1] += (-a - b) * boundary_high
-            
-            v[1:nx, j] = np.linalg.solve(A, rhs)
-            v[0, j] = boundary_low
-            v[nx-1, j] = boundary_high
-            for i in range(nx):
-                if option_type == 'call':
-                    v[i, j] = max(v[i, j], np.exp(x[i]) - K)
-                else:
-                    v[i, j] = max(v[i, j], K - np.exp(x[i]))
+                v[:, j] = np.maximum(v[:, j], K - np.exp(x))
 
     prices = np.zeros(len(S0_range))
     for i, S0 in enumerate(S0_range):
         prices[i] = np.interp(np.log(S0), x, v[:, 0])
     return prices
 
-def fd_log(K, sigma, T, r, dt, dx, S0_range, method='explicit', option_type='put'):
-    return _fd_solver_log(K, sigma, T, r, dt, dx, S0_range, method, option_type)
+def fd_log(K, sigma, T, r, dt, dx, S0_range, method='explicit', option_type='put', allow_unstable=False):
+    return _fd_solver_log(K, sigma, T, r, dt, dx, S0_range, method, option_type, allow_unstable)
 
-def _fd_solver_bs(K, sigma, T, r, dt, dS, S0_range, method='explicit', option_type='put'):
+def _fd_solver_bs(K, sigma, T, r, dt, dS, S0_range, method='explicit', option_type='put', allow_unstable=False):
+    _validate_fd_inputs(K, sigma, T, dt, dS, S0_range, method, option_type, "dS")
     S_min = max(min(S0_range) - 50, 1.0)
     S_max = max(S0_range) + 100.0
     nS = int(round((S_max - S_min) / dS)) + 1
@@ -129,8 +121,8 @@ def _fd_solver_bs(K, sigma, T, r, dt, dS, S0_range, method='explicit', option_ty
     if method == 'explicit':
         # Stability check
         alpha_max = 0.5 * sigma**2 * S_max**2 * dt / dS**2
-        if alpha_max > 0.5:
-            print(f"Warning: Explicit method might be unstable. Max alpha = {alpha_max:.2f} > 0.5. Consider reducing dt or increasing dS.")
+        if alpha_max > 0.5 and not allow_unstable:
+            raise ValueError(f"Explicit method is unstable. Max alpha = {alpha_max:.2f} > 0.5.")
 
         for j in range(nt - 2, -1, -1):
             if option_type == 'call':
@@ -212,5 +204,5 @@ def _fd_solver_bs(K, sigma, T, r, dt, dS, S0_range, method='explicit', option_ty
         prices[i] = np.interp(S0, S, v[:, 0])
     return prices
 
-def fd_bs(K, sigma, T, r, dt, dS, S0_range, method='explicit', option_type='put'):
-    return _fd_solver_bs(K, sigma, T, r, dt, dS, S0_range, method, option_type)
+def fd_bs(K, sigma, T, r, dt, dS, S0_range, method='explicit', option_type='put', allow_unstable=False):
+    return _fd_solver_bs(K, sigma, T, r, dt, dS, S0_range, method, option_type, allow_unstable)

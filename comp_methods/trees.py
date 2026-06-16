@@ -1,6 +1,11 @@
 import numpy as np
+from ._validation import validate_choice, validate_positive
 
 def binomial_tree(S0, K, r, sigma, T, n, method='a', option_type='put'):
+    validate_choice("option_type", option_type, {"call", "put"})
+    validate_choice("method", method, {"a", "b"})
+    for name, value in {"S0": S0, "K": K, "sigma": sigma, "T": T, "n": n}.items():
+        validate_positive(name, value)
     dt = T / n
     if method == 'a':
         c = 0.5 * (np.exp(-r * dt) + np.exp((r + sigma**2) * dt))
@@ -62,51 +67,42 @@ def crr_american_put(S0, K, r, sigma, T, n):
         
     return option[0, 0], delta
 
-def trinomial_tree(S0, K, r, sigma, T, n, method='a'):
-    dt = T / n
-    if method == 'a':
-        d = np.exp(-sigma * np.sqrt(3 * dt))
-        u = 1 / d
-        p_d = (r * dt * (1 - u) + (r * dt)**2 + sigma**2 * dt) / ((u - d) * (1 - d))
-        p_u = (r * dt * (1 - d) + (r * dt)**2 + sigma**2 * dt) / ((u - d) * (u - 1))
-        p_m = 1 - p_u - p_d
-        
-        stock = np.zeros((2*n+1, n+1))
-        stock[n, 0] = S0
-        for j in range(1, n+1):
-            for i in range(2*n+1):
-                up = max(0, j - i + n)
-                down = max(0, i - n)
-                if up + down <= j:
-                    stock[i, j] = S0 * (u ** up) * (d ** down)
-    else:
-        dX = sigma * np.sqrt(3 * dt)
-        drift = r - sigma**2/2
-        p_d = 0.5 * ((sigma**2 * dt + drift**2 * dt**2) / dX**2 - drift * dt / dX)
-        p_u = 0.5 * ((sigma**2 * dt + drift**2 * dt**2) / dX**2 + drift * dt / dX)
-        p_m = 1 - p_u - p_d
-        
-        logS = np.zeros((2*n+1, n+1))
-        logS[n, 0] = np.log(S0)
-        for j in range(1, n+1):
-            for i in range(2*n+1):
-                if 0 <= j - i + n <= 2*j:
-                    logS[i, j] = np.log(S0) + (j - i + n) * dX + (i - n) * (-dX)
-        stock = np.exp(logS)
+def trinomial_tree(S0, K, r, sigma, T, n, method='a', option_type='put'):
+    validate_choice("method", method, {"a", "b"})
+    validate_choice("option_type", option_type, {"call", "put"})
+    for name, value in {"S0": S0, "K": K, "sigma": sigma, "T": T, "n": n}.items():
+        validate_positive(name, value)
 
-    option = np.zeros((2*n+1, n+1))
-    for i in range(2*n+1):
-        if stock[i, n] > 0:
-            option[i, n] = max(K - stock[i, n], 0)
-            
-    for j in range(n-1, -1, -1):
-        for i in range(2*n+1):
-            if stock[i, j] > 0:
-                up = max(0, min(2*n, i-1))
-                mid = i
-                down = min(2*n, i+1)
-                
-                expected = p_u * option[up, j+1] + p_m * option[mid, j+1] + p_d * option[down, j+1]
-                option[i, j] = max(expected * np.exp(-r * dt), K - stock[i, j])
-                
-    return option[n, 0]
+    dt = T / n
+    dx = sigma * np.sqrt(3 * dt)
+    drift = r - 0.5 * sigma**2
+    p_u = 0.5 * ((sigma**2 * dt + drift**2 * dt**2) / dx**2 + drift * dt / dx)
+    p_d = 0.5 * ((sigma**2 * dt + drift**2 * dt**2) / dx**2 - drift * dt / dx)
+    p_m = 1.0 - p_u - p_d
+
+    if min(p_u, p_m, p_d) < -1e-14:
+        raise ValueError("trinomial probabilities are negative; increase n or adjust parameters")
+
+    node_indices = np.arange(-n, n + 1)
+    stock = S0 * np.exp(node_indices * dx)
+    if option_type == 'call':
+        option = np.maximum(stock - K, 0.0)
+    else:
+        option = np.maximum(K - stock, 0.0)
+
+    disc = np.exp(-r * dt)
+    for step in range(n - 1, -1, -1):
+        continuation = disc * (
+            p_d * option[:-2]
+            + p_m * option[1:-1]
+            + p_u * option[2:]
+        )
+        active_indices = np.arange(-step, step + 1)
+        active_stock = S0 * np.exp(active_indices * dx)
+        if option_type == 'call':
+            intrinsic = np.maximum(active_stock - K, 0.0)
+        else:
+            intrinsic = np.maximum(K - active_stock, 0.0)
+        option = np.maximum(continuation, intrinsic)
+
+    return option[0]

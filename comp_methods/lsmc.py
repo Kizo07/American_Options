@@ -1,4 +1,5 @@
 import numpy as np
+from ._validation import validate_choice, validate_positive
 
 def laguerre(x, k):
     if k == 0: return np.ones_like(x)
@@ -21,13 +22,21 @@ def hermite(x, k):
 def monomial(x, k):
     return x**k
 
-def lsmc(S0, K, r, sigma, T, N, num_steps, k, poly_type='laguerre'):
+def _rng_normal(rng, loc, scale, size):
+    if rng is None:
+        return np.random.normal(loc, scale, size)
+    return rng.normal(loc, scale, size)
+
+def lsmc(S0, K, r, sigma, T, N, num_steps, k, poly_type='laguerre', rng=None):
+    validate_choice("poly_type", poly_type, {"laguerre", "hermite", "monomial"})
+    for name, value in {"S0": S0, "K": K, "sigma": sigma, "T": T, "N": N, "num_steps": num_steps, "k": k}.items():
+        validate_positive(name, value)
     dt = T / num_steps
     df = np.exp(-r * dt)
     
-    N_half = N // 2
-    Z = np.random.normal(0, 1, (N_half, num_steps))
-    Z = np.vstack((Z, -Z))
+    N_half = int(np.ceil(N / 2))
+    Z_half = _rng_normal(rng, 0.0, 1.0, (N_half, num_steps))
+    Z = np.vstack((Z_half, -Z_half))[:N]
     
     S = np.zeros((N, num_steps + 1))
     S[:, 0] = S0
@@ -44,8 +53,9 @@ def lsmc(S0, K, r, sigma, T, N, num_steps, k, poly_type='laguerre'):
             S_itm = S[itm, i]
             V_next = V * df
             
-            X = np.ones((np.sum(itm), k))
-            for j in range(1, k):
+            basis_count = min(k, np.sum(itm))
+            X = np.ones((np.sum(itm), basis_count))
+            for j in range(1, basis_count):
                 X[:, j] = poly_func(S_itm / K, j)
             
             beta = np.linalg.lstsq(X, V_next[itm], rcond=None)[0]
@@ -59,4 +69,4 @@ def lsmc(S0, K, r, sigma, T, N, num_steps, k, poly_type='laguerre'):
         else:
             V *= df
             
-    return np.mean(V) * df
+    return max(float(np.mean(V) * df), max(K - S0, 0.0))
