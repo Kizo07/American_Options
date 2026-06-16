@@ -8,9 +8,14 @@ The project started from course/research notebooks and now exposes the reusable 
 
 - American and European option pricing with binomial and trinomial trees.
 - Black-Scholes closed-form pricing and payoff helpers.
+- Continuous-dividend yield support for the main vanilla pricers.
+- Flat and interpolated zero-rate curves for discounting and curve-aware pricing inputs.
+- Closed-form and bump-based Greeks.
 - Finite-difference solvers on stock-price and log-price grids.
 - Longstaff-Schwartz Monte Carlo for American puts.
-- Monte Carlo utilities for GBM, antithetic variates, Euler/Milstein discretization, and two-factor stochastic-volatility examples.
+- Monte Carlo utilities for GBM, antithetic variates, control variates, moment matching, Sobol normals, Euler/Milstein discretization, and two-factor stochastic-volatility examples.
+- Monte Carlo examples for Asian, barrier, lookback, and digital options.
+- Implied volatility and simple calibration helpers.
 - Random-number generation exercises including LCG, Bernoulli/binomial/exponential draws, Box-Muller, and Polar-Marsaglia normals.
 - Interest-rate examples for CIR and G2++ zero-coupon bonds and bond options.
 - Structured-product examples including mortgage default simulation, MBS pricing, OAS, IO/PO pricing, and Heston down-and-out puts.
@@ -77,6 +82,17 @@ bs_price = black_scholes(100, 100, 0.05, 0.20, 1.0, option_type="call")
 print(tree_price, bs_price)
 ```
 
+Use a dividend yield and curve object:
+
+```python
+from comp_methods import FlatCurve, black_scholes
+
+curve = FlatCurve(0.05)
+price = black_scholes(100, 100, curve, 0.20, 1.0, option_type="call", q=0.02)
+
+print(price)
+```
+
 Run Longstaff-Schwartz Monte Carlo with a seeded NumPy generator:
 
 ```python
@@ -89,19 +105,56 @@ price = lsmc(100, 100, 0.05, 0.20, 1.0, N=20_000, num_steps=50, k=3, rng=rng)
 print(f"LSMC American put: {price:.4f}")
 ```
 
+Compute Greeks, implied volatility, and an exotic price:
+
+```python
+from comp_methods import asian_option_mc, black_scholes, black_scholes_greeks, implied_vol
+
+greeks = black_scholes_greeks(100, 100, 0.05, 0.20, 1.0, option_type="call")
+price = black_scholes(100, 100, 0.05, 0.25, 1.0, option_type="put")
+iv = implied_vol(price, 100, 100, 0.05, 1.0, option_type="put")
+asian_price, asian_err = asian_option_mc(100, 100, 0.05, 0.20, 1.0, n_paths=20_000)
+
+print(greeks["delta"], iv, asian_price, asian_err)
+```
+
 ## Feature Map
 
 ### Analytic Models
 
 Module: `comp_methods.analytic_models`
 
-- `black_scholes(S0, K, r, sigma, T, option_type="call")`
-- `black_scholes_approx(S0, K, r, sigma, T)`
+- `black_scholes(S0, K, r, sigma, T, option_type="call", q=0.0)`
+- `black_scholes_approx(S0, K, r, sigma, T, q=0.0)`
 - `call_payoff(S_T, K)`
 - `put_payoff(S_T, K)`
 - `norm_cdf_approx(x)`
 
-Use these functions for closed-form European option references and payoff construction. They are also useful for validating tree, finite-difference, and Monte Carlo outputs.
+Use these functions for closed-form European option references and payoff construction. They are also useful for validating tree, finite-difference, and Monte Carlo outputs. `r` may be a scalar or a supported curve object, and `q` is a continuous dividend yield.
+
+### Curves
+
+Module: `comp_methods.curves`
+
+- `FlatCurve(rate)`
+- `ZeroCurve(times, rates, compounding="continuous")`
+- `discount_factor(rate_or_curve, t)`
+- `as_flat_rate(rate_or_curve, t)`
+
+Curve objects expose `discount(t)`, `zero_rate(t)`, and `forward_rate(t1, t2)`. The main vanilla pricers accept either scalar rates or curve objects for `r`.
+
+Example:
+
+```python
+from comp_methods import FlatCurve, ZeroCurve, black_scholes
+
+flat = FlatCurve(0.05)
+curve = ZeroCurve([0.0, 1.0, 2.0], [0.03, 0.04, 0.05])
+
+print(flat.discount(1.0))
+print(curve.forward_rate(1.0, 2.0))
+print(black_scholes(100, 100, flat, 0.20, 1.0))
+```
 
 ### Tree Methods
 
@@ -111,14 +164,14 @@ Module: `comp_methods.trees`
 - `crr_american_put(...)`: Cox-Ross-Rubinstein American put with a simple delta estimate.
 - `trinomial_tree(...)`: recombining log-price trinomial tree for American calls and puts.
 
-The tree methods are the most direct tools in the library for American exercise. The trinomial implementation uses a recombining log-price grid and validates method/option inputs.
+The tree methods are the most direct tools in the library for American exercise. The trinomial implementation uses a recombining log-price grid and validates method/option inputs. Tree methods support continuous dividend yield through `q`.
 
 ### Finite Difference Methods
 
 Module: `comp_methods.finite_difference`
 
-- `fd_bs(K, sigma, T, r, dt, dS, S0_range, method="explicit", option_type="put")`
-- `fd_log(K, sigma, T, r, dt, dx, S0_range, method="explicit", option_type="put")`
+- `fd_bs(K, sigma, T, r, dt, dS, S0_range, method="explicit", option_type="put", q=0.0)`
+- `fd_log(K, sigma, T, r, dt, dx, S0_range, method="explicit", option_type="put", q=0.0)`
 
 Supported methods:
 
@@ -161,7 +214,27 @@ Supported basis types:
 - `hermite`
 - `monomial`
 
-The LSMC implementation supports seeded NumPy generators through `rng`, handles odd path counts, and applies an immediate-exercise lower bound for deep in-the-money puts.
+The LSMC implementation supports seeded NumPy generators through `rng`, handles odd path counts, supports continuous dividend yield through `q`, and applies an immediate-exercise lower bound for deep in-the-money puts.
+
+### Greeks
+
+Module: `comp_methods.greeks`
+
+- `black_scholes_greeks(...)`
+- `bump_greeks(price_func, params, bumps=None)`
+- `tree_greeks(...)`
+- `fd_greeks(...)`
+
+The Black-Scholes Greek function returns a dictionary with `price`, `delta`, `gamma`, `vega`, `theta`, and `rho`. Bump-based helpers are useful for educational comparisons across pricing engines.
+
+Example:
+
+```python
+from comp_methods import black_scholes_greeks
+
+greeks = black_scholes_greeks(100, 100, 0.05, 0.20, 1.0, option_type="call", q=0.01)
+print(greeks)
+```
 
 ### Monte Carlo and Stochastic Processes
 
@@ -172,6 +245,7 @@ Path and vanilla-option utilities:
 - `simulate_path_S(...)`
 - `mc_call_option(...)`
 - `mc_call_option_antithetic(...)`
+- `sobol_normals(...)`
 - `euler_discretization(...)`
 - `milstein_discretization(...)`
 - `brownian_motion(...)`
@@ -184,7 +258,7 @@ Two-factor and Heston-style examples:
 - `two_factor_mc_call(...)`
 - `heston_down_out_put(...)`
 
-Several stochastic functions accept `rng=np.random.default_rng(seed)` for reproducible experiments. Correlation parameters are validated so invalid `rho` values fail explicitly instead of producing NaNs.
+Several stochastic functions accept `rng=np.random.default_rng(seed)` for reproducible experiments. Correlation parameters are validated so invalid `rho` values fail explicitly instead of producing NaNs. Vanilla Monte Carlo calls support `variance_reduction="antithetic"`, `"control_variate"`, or `"moment_matching"`.
 
 Example:
 
@@ -196,6 +270,53 @@ rng = np.random.default_rng(7)
 path = simulate_path_S(100, 0.05, 0.20, 1.0, num_steps=252, rng=rng)
 
 print(path[0], path[-1])
+```
+
+Variance-reduction example:
+
+```python
+import numpy as np
+from comp_methods import mc_call_option, sobol_normals
+
+rng = np.random.default_rng(123)
+price, err = mc_call_option(
+    100,
+    100,
+    0.05,
+    0.20,
+    1.0,
+    50_000,
+    rng=rng,
+    variance_reduction="control_variate",
+)
+normals = sobol_normals(1024, 12, seed=7)
+
+print(price, err, normals.shape)
+```
+
+### Exotics
+
+Module: `comp_methods.exotics`
+
+- `asian_option_mc(...)`
+- `barrier_option_mc(...)`
+- `digital_option_bs(...)`
+- `lookback_option_mc(...)`
+- `vanilla_reference_price(...)`
+
+These functions provide compact MC/closed-form examples for common exotic payoff shapes. They are intended as educational references and benchmarks for future method extensions.
+
+Example:
+
+```python
+from comp_methods import asian_option_mc, barrier_option_mc, digital_option_bs, lookback_option_mc
+
+asian, asian_err = asian_option_mc(100, 100, 0.05, 0.20, 1.0)
+barrier, barrier_err = barrier_option_mc(100, 100, 0.05, 0.20, 1.0, barrier=90)
+digital = digital_option_bs(100, 100, 0.05, 0.20, 1.0)
+lookback, lookback_err = lookback_option_mc(100, 0.05, 0.20, 1.0)
+
+print(asian, barrier, digital, lookback)
 ```
 
 ### Random Number Generators
@@ -230,6 +351,34 @@ G2++ examples:
 
 These functions provide compact examples of affine-rate model pricing, Monte Carlo pricing, and PDE-style bond-option valuation.
 
+### Calibration
+
+Module: `comp_methods.calibration`
+
+- `implied_vol(...)`
+- `calibrate_vol_surface(...)`
+- `bootstrap_zero_curve(...)`
+
+The calibration helpers are intentionally small: implied volatility uses scalar root finding, the surface helper fits a single flat volatility to synthetic or educational quote sets, and `bootstrap_zero_curve` wraps the curve object used elsewhere.
+
+Example:
+
+```python
+from comp_methods import black_scholes, calibrate_vol_surface, implied_vol
+
+target = black_scholes(100, 100, 0.05, 0.30, 1.0)
+iv = implied_vol(target, 100, 100, 0.05, 1.0)
+
+quotes = [
+    {"S0": 100, "K": 90, "r": 0.05, "T": 1.0, "price": black_scholes(100, 90, 0.05, 0.30, 1.0)},
+    {"S0": 100, "K": 100, "r": 0.05, "T": 1.0, "price": black_scholes(100, 100, 0.05, 0.30, 1.0)},
+    {"S0": 100, "K": 110, "r": 0.05, "T": 1.0, "price": black_scholes(100, 110, 0.05, 0.30, 1.0)},
+]
+fit = calibrate_vol_surface(quotes)
+
+print(iv, fit)
+```
+
 ### Credit, Mortgage, and Structured Products
 
 Modules: `comp_methods.credit_risk`, `comp_methods.mbs`, `comp_methods.monte_carlo`
@@ -248,12 +397,26 @@ Mortgage-backed security examples:
 - `mbs_pricing(...)`
 - `compute_oas(...)`
 - `io_po_pricing(...)`
+- `MBSConfig`
+- `PrepaymentConfig`
 
 Barrier/stochastic-volatility example:
 
 - `heston_down_out_put(...)`
+- `HestonBarrierConfig`
 
 These are research/example implementations with embedded modeling assumptions. They are useful as starting points for experiments, not as calibrated production valuation models.
+
+Config example:
+
+```python
+from comp_methods import HestonBarrierConfig, MBSConfig, heston_down_out_put, mbs_pricing
+
+mbs_price = mbs_pricing(config=MBSConfig(notional=250_000, N_sims=5_000))
+heston_prices = heston_down_out_put(config=HestonBarrierConfig(N_sims=20_000))
+
+print(mbs_price, heston_prices)
+```
 
 ### Greeks and Utility Functions
 
@@ -289,7 +452,7 @@ conda run -n base python -m compileall -q comp_methods tests examples notebooks/
 Expected current result:
 
 ```text
-15 passed
+22 passed
 ```
 
 The numerical test suite covers:
@@ -299,12 +462,13 @@ The numerical test suite covers:
 - Stochastic path initialization and seeded reproducibility.
 - Correlation validation and truncation-method behavior.
 - Finite-difference method validation and explicit stability guardrails.
+- Dividend-yield, curve, Greek, calibration, variance-reduction, exotic-option, and config-dataclass features.
 
 ## Notes and Limitations
 
 - This repository is educational/research code, not production valuation infrastructure.
-- Most models assume constant rates and volatilities unless a specific model function says otherwise.
-- Dividend yields, discrete dividends, calibration routines, and market data integrations are not implemented.
+- Most models assume constant volatilities unless a specific model function says otherwise.
+- Continuous dividend yields, simple curves, implied volatility, and flat-vol calibration are implemented; discrete dividends and full market data integrations are not.
 - Some structured-product routines intentionally encode assignment-style assumptions and should be reviewed before reuse.
 - Monte Carlo outputs depend on path count, seed, basis choice, and discretization settings.
 

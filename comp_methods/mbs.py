@@ -1,5 +1,21 @@
 import numpy as np
+from dataclasses import dataclass
 from scipy.optimize import brentq
+
+@dataclass(frozen=True)
+class PrepaymentConfig:
+    WAC: float = 0.08
+
+
+@dataclass(frozen=True)
+class MBSConfig:
+    r_bar: float = 0.08
+    kappa: float = 0.6
+    sigma: float = 0.12
+    r0: float = 0.078
+    WAC: float = 0.08
+    notional: float = 100000
+    N_sims: int = 25000
 
 def numerix_prepayment_rate(age, r_market, WAC=0.08):
     r_incentive = np.maximum((WAC - r_market) * 100, 0)
@@ -55,7 +71,9 @@ def _run_mbs_simulation(r_bar, kappa, sigma, r0, WAC, notional, N_sims=25000):
 
     return np.mean(mbs_val), np.mean(io_val), np.mean(po_val)
 
-def mbs_pricing(r_bar=0.08, kappa=0.6, sigma=0.12, r0=0.078, WAC=0.08, notional=100000):
+def mbs_pricing(r_bar=0.08, kappa=0.6, sigma=0.12, r0=0.078, WAC=0.08, notional=100000, config=None):
+    if config is not None:
+        return _run_mbs_simulation(config.r_bar, config.kappa, config.sigma, config.r0, config.WAC, config.notional, config.N_sims)[0]
     return _run_mbs_simulation(r_bar, kappa, sigma, r0, WAC, notional)[0]
 
 def compute_oas(market_price, r_bar, kappa, sigma, r0=0.078, WAC=0.08, notional=100000):
@@ -66,6 +84,9 @@ def compute_oas(market_price, r_bar, kappa, sigma, r0=0.078, WAC=0.08, notional=
     except ValueError:
         return np.nan
 
-def io_po_pricing(r_bar=0.08, kappa=0.6, sigma=0.12, r0=0.078, WAC=0.08, notional=100000):
+def io_po_pricing(r_bar=0.08, kappa=0.6, sigma=0.12, r0=0.078, WAC=0.08, notional=100000, config=None):
+    if config is not None:
+        _, io, po = _run_mbs_simulation(config.r_bar, config.kappa, config.sigma, config.r0, config.WAC, config.notional, config.N_sims)
+        return io, po
     _, io, po = _run_mbs_simulation(r_bar, kappa, sigma, r0, WAC, notional)
     return io, po

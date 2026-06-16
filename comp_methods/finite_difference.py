@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.sparse import diags
 from ._validation import validate_choice, validate_positive
+from .curves import as_flat_rate
 
 def _validate_fd_inputs(K, sigma, T, dt, step, S0_range, method, option_type, step_name):
     validate_choice("method", method, {"explicit", "implicit", "crank_nicolson"})
@@ -12,7 +13,8 @@ def _validate_fd_inputs(K, sigma, T, dt, step, S0_range, method, option_type, st
     for S0 in S0_range:
         validate_positive("S0", S0)
 
-def _fd_solver_log(K, sigma, T, r, dt, dx, S0_range, method='explicit', option_type='put', allow_unstable=False):
+def _fd_solver_log(K, sigma, T, r, dt, dx, S0_range, method='explicit', option_type='put', allow_unstable=False, q=0.0):
+    r = as_flat_rate(r, T)
     _validate_fd_inputs(K, sigma, T, dt, dx, S0_range, method, option_type, "dx")
     x_min = np.log(min(S0_range) * 0.5)
     x_max = np.log(max(S0_range) * 2.0)
@@ -30,7 +32,7 @@ def _fd_solver_log(K, sigma, T, r, dt, dx, S0_range, method='explicit', option_t
         
     alpha = dt / (dx**2)
     beta = dt / (2 * dx)
-    gamma = r - sigma**2/2
+    gamma = r - q - sigma**2/2
     
     if method == 'explicit':
         # Stability check
@@ -100,10 +102,11 @@ def _fd_solver_log(K, sigma, T, r, dt, dx, S0_range, method='explicit', option_t
         prices[i] = np.interp(np.log(S0), x, v[:, 0])
     return prices
 
-def fd_log(K, sigma, T, r, dt, dx, S0_range, method='explicit', option_type='put', allow_unstable=False):
-    return _fd_solver_log(K, sigma, T, r, dt, dx, S0_range, method, option_type, allow_unstable)
+def fd_log(K, sigma, T, r, dt, dx, S0_range, method='explicit', option_type='put', allow_unstable=False, q=0.0):
+    return _fd_solver_log(K, sigma, T, r, dt, dx, S0_range, method, option_type, allow_unstable, q)
 
-def _fd_solver_bs(K, sigma, T, r, dt, dS, S0_range, method='explicit', option_type='put', allow_unstable=False):
+def _fd_solver_bs(K, sigma, T, r, dt, dS, S0_range, method='explicit', option_type='put', allow_unstable=False, q=0.0):
+    r = as_flat_rate(r, T)
     _validate_fd_inputs(K, sigma, T, dt, dS, S0_range, method, option_type, "dS")
     S_min = max(min(S0_range) - 50, 1.0)
     S_max = max(S0_range) + 100.0
@@ -135,13 +138,13 @@ def _fd_solver_bs(K, sigma, T, r, dt, dS, S0_range, method='explicit', option_ty
             for i in range(1, nS - 1):
                 Si = S[i]
                 c1 = sigma**2 * Si**2 * dt / dS**2
-                c2 = r * Si * dt / dS
+                c2 = (r - q) * Si * dt / dS
                 v[i, j] = (0.5*c1 - 0.5*c2)*v[i-1, j+1] + (1 - c1 - r*dt)*v[i, j+1] + (0.5*c1 + 0.5*c2)*v[i+1, j+1]
             v[:, j] = np.maximum(v[:, j], payoff)
             
     elif method == 'implicit':
         alpha = 0.5 * sigma**2 * S**2 * dt / dS**2
-        beta = 0.5 * r * S * dt / dS
+        beta = 0.5 * (r - q) * S * dt / dS
         
         lower = beta[1:nS-1] - alpha[1:nS-1]
         main = 1.0 + 2 * alpha[1:nS-1] + r * dt
@@ -169,7 +172,7 @@ def _fd_solver_bs(K, sigma, T, r, dt, dS, S0_range, method='explicit', option_ty
             
     elif method == 'crank_nicolson':
         alpha = 0.25 * sigma**2 * S**2 * dt / dS**2
-        beta = 0.25 * r * S * dt / dS
+        beta = 0.25 * (r - q) * S * dt / dS
         
         m1_lower = beta[1:nS-1] - alpha[1:nS-1]
         m1_main = 1.0 + 2.0 * alpha[1:nS-1] + 0.5 * r * dt
@@ -204,5 +207,5 @@ def _fd_solver_bs(K, sigma, T, r, dt, dS, S0_range, method='explicit', option_ty
         prices[i] = np.interp(S0, S, v[:, 0])
     return prices
 
-def fd_bs(K, sigma, T, r, dt, dS, S0_range, method='explicit', option_type='put', allow_unstable=False):
-    return _fd_solver_bs(K, sigma, T, r, dt, dS, S0_range, method, option_type, allow_unstable)
+def fd_bs(K, sigma, T, r, dt, dS, S0_range, method='explicit', option_type='put', allow_unstable=False, q=0.0):
+    return _fd_solver_bs(K, sigma, T, r, dt, dS, S0_range, method, option_type, allow_unstable, q)
