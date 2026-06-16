@@ -1,30 +1,41 @@
 import numpy as np
 from .stochastic_processes import brownian_motion, gbm, two_factor_gbm
 from .analytic_models import call_payoff
+from ._validation import validate_positive, validate_rho
 
-def simulate_path_S(S0, r, sigma, T, num_steps):
+def _rng_normal(rng, loc, scale, size):
+    if rng is None:
+        return np.random.normal(loc, scale, size)
+    return rng.normal(loc, scale, size)
+
+def simulate_path_S(S0, r, sigma, T, num_steps, rng=None):
+    for name, value in {"S0": S0, "sigma": sigma, "T": T, "num_steps": num_steps}.items():
+        validate_positive(name, value)
     dt = T / num_steps
-    Wt = brownian_motion(dt, num_steps + 1, 1).flatten()
-    ln_S_t = np.cumsum((r - 0.5 * sigma**2) * dt + sigma * Wt)
-    return S0 * np.exp(ln_S_t)
+    dW = brownian_motion(dt, num_steps, 1, rng=rng).flatten()
+    increments = (r - 0.5 * sigma**2) * dt + sigma * dW
+    path = np.empty(num_steps + 1)
+    path[0] = S0
+    path[1:] = S0 * np.exp(np.cumsum(increments))
+    return path
 
-def euler_discretization(S0, r, sigma, T, steps, N):
+def euler_discretization(S0, r, sigma, T, steps, N, rng=None):
     dt = T / steps
-    Wt = brownian_motion(dt, steps, N)
+    Wt = brownian_motion(dt, steps, N, rng=rng)
     increments = 1 + r * dt + sigma * Wt
     return S0 * np.prod(increments, axis=1)
 
-def milstein_discretization(S0, r, sigma, T, steps, N):
+def milstein_discretization(S0, r, sigma, T, steps, N, rng=None):
     dt = T / steps
-    Wt = brownian_motion(dt, steps, N)
+    Wt = brownian_motion(dt, steps, N, rng=rng)
     increments = 1 + r * dt + sigma * Wt + 0.5 * sigma**2 * (Wt**2 - dt)
     return S0 * np.prod(increments, axis=1)
 
-def mc_call_option(S0, K, r, sigma, T, N, steps=None, discretization_func=None):
+def mc_call_option(S0, K, r, sigma, T, N, steps=None, discretization_func=None, rng=None):
     if steps and discretization_func:
-        S_T = discretization_func(S0, r, sigma, T, steps, N)
+        S_T = discretization_func(S0, r, sigma, T, steps, N, rng=rng)
     else:
-        Wt = np.sqrt(T) * np.random.randn(N)
+        Wt = _rng_normal(rng, 0.0, np.sqrt(T), N)
         S_T = gbm(S0, r, sigma, T, Wt)
         
     payoffs = call_payoff(S_T, K)
@@ -32,8 +43,8 @@ def mc_call_option(S0, K, r, sigma, T, N, steps=None, discretization_func=None):
     std_err = np.exp(-r * T) * np.std(payoffs) / np.sqrt(N)
     return price, std_err
 
-def mc_call_option_antithetic(S0, K, r, sigma, T, N):
-    Wt = np.sqrt(T) * np.random.randn(N)
+def mc_call_option_antithetic(S0, K, r, sigma, T, N, rng=None):
+    Wt = _rng_normal(rng, 0.0, np.sqrt(T), N)
     S_T = gbm(S0, r, sigma, T, Wt)
     S_T_anti = gbm(S0, r, sigma, T, -Wt)
     
@@ -42,8 +53,9 @@ def mc_call_option_antithetic(S0, K, r, sigma, T, N):
     std_err = np.exp(-r * T) * np.std(payoffs) / np.sqrt(N)
     return price, std_err
 
-def two_factor_mc_call(S0, V0, r, alpha, beta, sigma, rho, K, T, N, n, method="partial_truncation"):
-    S_T = two_factor_gbm(S0, V0, r, alpha, beta, sigma, rho, T, N, n, method)
+def two_factor_mc_call(S0, V0, r, alpha, beta, sigma, rho, K, T, N, n, method="partial_truncation", rng=None):
+    validate_rho(rho)
+    S_T = two_factor_gbm(S0, V0, r, alpha, beta, sigma, rho, T, N, n, method, rng=rng)
     payoffs = call_payoff(S_T, K)
     price = np.exp(-r * T) * np.mean(payoffs)
     std_err = np.exp(-r * T) * np.std(payoffs) / np.sqrt(n)
